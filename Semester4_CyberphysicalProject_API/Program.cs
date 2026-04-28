@@ -1,4 +1,9 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Semester4_CyberphysicalProject_API.Data;
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddDbContext<WeatherContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("WeatherContext") ?? throw new InvalidOperationException("Connection string 'WeatherContext' not found.")));
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
@@ -20,8 +25,21 @@ app.UseRouting();
 
 app.UseAuthorization();
 
+
+//////////////////////////////////////////////////////////////////////////////////////
+///                                  Routing Paths                                 ///
+//////////////////////////////////////////////////////////////////////////////////////
+
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
+
+app.MapControllerRoute(
+    name: "helloWorld",
+    pattern: "{controller=HelloWorld}/{action=Index}/{id?}");
+
+app.MapControllerRoute(
+    name: "helloWorld",
+    pattern: "{controller=Weather}/{action=Index}/{id?}");
 
 app.Run();
