@@ -35,11 +35,7 @@ app.MapControllerRoute(
     pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.MapControllerRoute(
-    name: "helloWorld",
-    pattern: "{controller=HelloWorld}/{action=Index}/{id?}");
-
-app.MapControllerRoute(
-    name: "helloWorld",
+    name: "weather",
     pattern: "{controller=Weather}/{action=Index}/{id?}");
 
 app.Run();
