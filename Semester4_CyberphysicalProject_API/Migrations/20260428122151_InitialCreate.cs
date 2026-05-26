@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace Semester4_CyberphysicalProject_API.Migrations
+namespace SCPS_API_Project.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration

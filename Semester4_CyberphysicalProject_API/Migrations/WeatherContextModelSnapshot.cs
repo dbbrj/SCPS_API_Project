@@ -4,11 +4,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
-using Semester4_CyberphysicalProject_API.Data;
+using SCPS_API_Project.Data;
 
 #nullable disable
 
-namespace Semester4_CyberphysicalProject_API.Migrations
+namespace SCPS_API_Project.Migrations
 {
     [DbContext(typeof(WeatherContext))]
     partial class WeatherContextModelSnapshot : ModelSnapshot
@@ -22,7 +22,7 @@ namespace Semester4_CyberphysicalProject_API.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("Semester4_CyberphysicalProject_API.Models.WeatherModel", b =>
+            modelBuilder.Entity("SCPS_API_Project.Models.WeatherModel", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()

@@ -5,10 +5,10 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
-using Semester4_CyberphysicalProject_API.Data;
-using Semester4_CyberphysicalProject_API.Models;
+using SCPS_API_Project.Data;
+using SCPS_API_Project.Models;
 
-namespace Semester4_CyberphysicalProject_API.Controllers
+namespace SCPS_API_Project.Controllers
 {
     public class WeatherController : Controller
     {

@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using Semester4_CyberphysicalProject_API.Models;
+using SCPS_API_Project.Models;
 
-namespace Semester4_CyberphysicalProject_API.Data
+namespace SCPS_API_Project.Data
 {
     public class WeatherContext : DbContext
     {
@@ -14,6 +14,6 @@ namespace Semester4_CyberphysicalProject_API.Data
         {
         }
 
-        public DbSet<Semester4_CyberphysicalProject_API.Models.WeatherModel> WeatherModel { get; set; } = default!;
+        public DbSet<SCPS_API_Project.Models.WeatherModel> WeatherModel { get; set; } = default!;
     }
 }

@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
-using Semester4_CyberphysicalProject_API.Models;
+using SCPS_API_Project.Models;
 
-namespace Semester4_CyberphysicalProject_API.Controllers
+namespace SCPS_API_Project.Controllers
 {
     public class HomeController : Controller
     {

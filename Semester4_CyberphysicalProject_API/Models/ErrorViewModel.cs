@@ -1,4 +1,4 @@
-namespace Semester4_CyberphysicalProject_API.Models
+namespace SCPS_API_Project.Models
 {
     public class ErrorViewModel
     {
