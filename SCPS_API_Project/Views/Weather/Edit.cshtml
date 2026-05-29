@@ -1,39 +1,7 @@
-﻿@model SCPS_API_Project.Models.WeatherModel
-
 @{
     ViewData["Title"] = "Edit";
 }
 
-<h1>Edit</h1>
-
-<h4>WeatherModel</h4>
-<hr />
-<div class="row">
-    <div class="col-md-4">
-        <form asp-action="Edit">
-            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
-            <input type="hidden" asp-for="Id" />
-            <div class="form-group">
-                <label asp-for="TimeStamp" class="control-label"></label>
-                <input asp-for="TimeStamp" class="form-control" />
-                <span asp-validation-for="TimeStamp" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <label asp-for="jsonString" class="control-label"></label>
-                <input asp-for="jsonString" class="form-control" />
-                <span asp-validation-for="jsonString" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <input type="submit" value="Save" class="btn btn-primary" />
-            </div>
-        </form>
-    </div>
+<div class="alert alert-info">
+    Weather snapshots are read-only. Use the <a asp-action="Index">Weather History</a> page to manage snapshots.
 </div>
-
-<div>
-    <a asp-action="Index">Back to List</a>
-</div>
-
-@section Scripts {
-    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
-}

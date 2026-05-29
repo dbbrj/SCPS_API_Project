@@ -1,41 +1,38 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 using SCPS_API_Project.Data;
-var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddDbContext<WeatherContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("WeatherContext") ?? throw new InvalidOperationException("Connection string 'WeatherContext' not found.")));
+using SCPS_API_Project.Services;
 
-// Add services to the container.
+var builder = WebApplication.CreateBuilder(args);
+
+// Database
+builder.Services.AddDbContext<WeatherContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("WeatherContext")
+        ?? throw new InvalidOperationException("Connection string 'WeatherContext' not found.")));
+
+// Weather API facade — scoped HttpClient per request
+builder.Services.AddHttpClient<IWeatherApiService, WeatherApiService>();
+
+// Background service (Singleton) that fetches snapshots on a timer
+builder.Services.AddSingleton<WeatherFetchService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<WeatherFetchService>());
+
 builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
-
 app.UseRouting();
-
 app.UseAuthorization();
-
-
-//////////////////////////////////////////////////////////////////////////////////////
-///                                  Routing Paths                                 ///
-//////////////////////////////////////////////////////////////////////////////////////
 
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
-
-app.MapControllerRoute(
-    name: "weather",
-    pattern: "{controller=Weather}/{action=Index}/{id?}");
 
 app.Run();
