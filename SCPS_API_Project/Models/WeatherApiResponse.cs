@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace SCPS_API_Project.Models
 {
-    // v1 API Response Structure
+    // v1/v2 API Response Structure
     public class WeatherApiResponse
     {
         [JsonPropertyName("observations")]
@@ -34,5 +34,36 @@ namespace SCPS_API_Project.Models
 
         [JsonPropertyName("obsTimeUtc")]
         public string? ObsTimeUtc { get; set; }
+    }
+
+    // v3 API Response Structure
+    public class WeatherApiResponseV3
+    {
+        [JsonPropertyName("observations")]
+        public List<ObservationV3> Observations { get; set; } = new();
+    }
+
+    public class ObservationV3
+    {
+        [JsonPropertyName("temperature")]
+        public double? Temperature { get; set; }
+
+        [JsonPropertyName("windSpeed")]
+        public double? WindSpeed { get; set; }
+
+        [JsonPropertyName("windDirection")]
+        public int? WindDirection { get; set; }
+
+        [JsonPropertyName("windDirectionCardinal")]
+        public string? WindDirectionCardinal { get; set; }
+
+        [JsonPropertyName("cloudCoverPhrase")]
+        public string? CloudCoverPhrase { get; set; }
+
+        [JsonPropertyName("wxPhrase")]
+        public string? WxPhrase { get; set; }
+
+        [JsonPropertyName("observationTime")]
+        public string? ObservationTime { get; set; }
     }
 }
