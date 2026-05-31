@@ -1,6 +1,6 @@
 # SCPS Weather API Project
 
-ASP.NET Core 8 MVC application that fetches weather snapshots from the [IBM Weather Company API](https://developer.weather.com) and stores them in a local SQL Server database. The UI shows the full history of snapshots and allows manual fetches.
+ASP.NET Core 8 MVC application that fetches current weather snapshots from the [IBM Weather Company API](https://developer.weather.com) (Currents on Demand endpoint) and stores them in a local SQL Server database. The UI shows the full history as a chart and table.
 
 ## Prerequisites
 
@@ -41,24 +41,24 @@ dotnet ef database update
 dotnet run
 ```
 
-Then open `https://localhost:7105` in your browser and navigate to **Weather** to see snapshots.
+Then open `https://localhost:7105` in your browser and navigate to **Weather**.
 
 ## Configuration
 
-All other settings are in `appsettings.json`:
+All settings are in `appsettings.json`:
 
 | Key | Default | Description |
 |---|---|---|
-| `WeatherApi:Latitude` | `55.673291` | Location latitude (Stigs Bjergby, 4440 Mørkøv) |
-| `WeatherApi:Longitude` | `11.478659` | Location longitude (Stigs Bjergby, 4440 Mørkøv) |
-| `WeatherApi:Units` | `m` | Unit system — `m` = metric, `e` = imperial |
-| `WeatherApi:FetchIntervalMinutes` | `10` | How often a snapshot is auto-fetched |
+| `WeatherApi:Latitude` | `55.6722880` | Location latitude (Stigs Bjergby) |
+| `WeatherApi:Longitude` | `11.4797220` | Location longitude (Stigs Bjergby) |
+| `WeatherApi:FetchIntervalMinutes` | `10` | How often a snapshot is auto-fetched (minutes) |
 
 ## How it works
 
-- On startup the app fetches one snapshot immediately, then repeats on the configured interval (`WeatherFetchService` — Singleton/BackgroundService).
-- The **Weather** page shows the 50 most recent snapshots. Click **Fetch New Snapshot** to trigger a manual fetch.
-- Data is stored in a LocalDB SQL Server database via Entity Framework Core.
+- On startup the app immediately fetches one snapshot, then repeats on the configured interval (`WeatherFetchService` — Singleton BackgroundService pattern).
+- Each fetch calls `GET /v3/wx/observations/current` (Currents on Demand) and appends one row to the `WeatherModel` table. The accumulating rows are the historical data.
+- The **Weather** page loads the 100 most recent snapshots and displays them as a line chart (temperature °C on the left axis, wind km/h on the right axis) and a table below.
+- Click **Fetch New Snapshot** to trigger a manual fetch, then refresh the page to see the new data point.
 
 ## Known issues
 
