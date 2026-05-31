@@ -6,6 +6,8 @@ namespace SCPS_API_Project.Services
     public interface IWeatherApiService
     {
         Task<WeatherModel?> FetchCurrentWeatherAsync();
+        Task<List<WeatherModel>> FetchHistoricalHourlyAsync(int daysBack = 1);
+        Task<List<WeatherModel>> FetchHistoricalHourlyAsync(DateTime? specificDate = null);
     }
 
     // Facade: hides the complexity of the external weather.com API behind a simple interface
@@ -40,16 +42,35 @@ namespace SCPS_API_Project.Services
                 return CreateMockWeatherData("API Key missing");
             }
 
-            // Multiple endpoints to try, in order of preference
-            // Based on Weather Company API: https://docs.weather.com/docs/read/Current_Observations_API
+            // Correct Weather Company API v3 endpoints based on Standard Weather Data Package documentation
+            // https://developer.weather.com/docs/standard-weather-data-package
             var endpoints = new[]
             {
-                // Standard v1 observations endpoint (works for most plans)
-                new { Url = $"https://api.weather.com/v1/observations?geocode={lat},{lon}&apiKey={apiKey}&language=en-US", Format = "v1" },
-                // v2 observations with coordinates (newer format)
-                new { Url = $"https://api.weather.com/v2/observations?coordinates={lat},{lon}&apiKey={apiKey}&units=m", Format = "v2" },
-                // v3 wx observations
-                new { Url = $"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&apiKey={apiKey}", Format = "v3" }
+                // Try Currents On Demand without units (sometimes units param causes 400)
+                new { 
+                    Url = $"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&apiKey={apiKey}&language=en-US", 
+                    Format = "currents-on-demand-v1" 
+                },
+                // Try with just geocode and key
+                new { 
+                    Url = $"https://api.weather.com/v3/wx/observations/current?geocode={lat},{lon}&apiKey={apiKey}", 
+                    Format = "currents-on-demand-v2" 
+                },
+                // Try the "on-demand" format (sometimes the endpoint differs slightly)
+                new { 
+                    Url = $"https://api.weather.com/v3/wx/observations/onDemand?geocode={lat},{lon}&apiKey={apiKey}", 
+                    Format = "observations-on-demand" 
+                },
+                // Try v1 format with just essentials
+                new { 
+                    Url = $"https://api.weather.com/v1/observations?geocode={lat},{lon}&apiKey={apiKey}", 
+                    Format = "v1-observations" 
+                },
+                // Site-Based Observations (another v1 variant)
+                new { 
+                    Url = $"https://api.weather.com/v1/observations?search={lat},{lon}&apiKey={apiKey}", 
+                    Format = "v1-search" 
+                }
             };
 
             foreach (var endpoint in endpoints)
@@ -62,8 +83,7 @@ namespace SCPS_API_Project.Services
                 }
             }
 
-            _logger.LogError("All weather API endpoints failed. Your API key may not have the required permissions for observations endpoints. Returning mock data.");
-            // Return mock data so the app still works while we figure out the right endpoint
+            _logger.LogError("All weather API endpoints failed. Your API key may not have the required permissions for observations endpoints. Using mock data.");
             return CreateMockWeatherData("All endpoints failed");
         }
 
@@ -86,15 +106,15 @@ namespace SCPS_API_Project.Services
         {
             try
             {
-                _logger.LogDebug("Trying {Format} endpoint: {Url}", format, url.Split("?")[0]);
+                _logger.LogDebug("Trying {Format} endpoint: {Endpoint}", format, url.Split("?")[0]);
 
                 var response = await _httpClient.GetAsync(url);
 
                 if (!response.IsSuccessStatusCode)
                 {
                     var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogDebug("Endpoint {Format} returned {StatusCode}: {Message}", 
-                        format, response.StatusCode, errorContent.Length > 100 ? errorContent.Substring(0, 100) : errorContent);
+                    _logger.LogDebug("Endpoint {Format} returned {StatusCode}", 
+                        format, response.StatusCode);
                     return null;
                 }
 
@@ -102,15 +122,82 @@ namespace SCPS_API_Project.Services
                 _logger.LogDebug("API Response received from {Format}: {Length} bytes", format, json.Length);
 
                 // Try to parse based on format
-                if (format == "v3")
+                if (format == "currents-on-demand")
                 {
-                    var v3Response = JsonSerializer.Deserialize<WeatherApiResponseV3>(json, _jsonOptions);
-                    if (v3Response?.Observations?.Count > 0)
+                    // Currents On Demand returns a single object (not wrapped in array)
+                    var codResponse = JsonSerializer.Deserialize<WeatherApiResponseV3CoD>(json, _jsonOptions);
+                    if (codResponse?.Temperature.HasValue == true)
                     {
-                        var obs = v3Response.Observations.FirstOrDefault();
+                        _logger.LogInformation("Successfully parsed Currents On Demand response: {Temp}°C", codResponse.Temperature);
+                        return new WeatherModel
+                        {
+                            TimeStamp = DateTime.UtcNow,
+                            Temperature = codResponse.Temperature ?? 0,
+                            WindSpeed = codResponse.WindSpeed ?? 0,
+                            WindDirection = codResponse.WindDirectionCardinal ?? "N/A",
+                            SkyCondition = codResponse.CloudCover.HasValue ? $"{codResponse.CloudCover}% cloud cover" : "Unknown",
+                            WxPhrase = codResponse.WxPhraseLong ?? codResponse.WxPhraseShort,
+                            Location = "Odense, Denmark"
+                        };
+                    }
+                }
+                else if (format == "hourly-forecast")
+                {
+                    // Hourly Forecast returns arrays of values
+                    var forecastResponse = JsonSerializer.Deserialize<WeatherApiResponseV3Hourly>(json, _jsonOptions);
+                    if (forecastResponse?.Temperature?.Count > 0)
+                    {
+                        var temp = forecastResponse.Temperature[0];
+                        var windSpeed = forecastResponse.WindSpeed?[0] ?? 0;
+                        var windDir = forecastResponse.WindDirectionCardinal?[0] ?? "N/A";
+                        var wxPhrase = forecastResponse.WxPhraseLong?[0] ?? "Unknown";
+
+                        _logger.LogInformation("Successfully parsed Hourly Forecast response: {Temp}°C", temp);
+                        return new WeatherModel
+                        {
+                            TimeStamp = DateTime.UtcNow,
+                            Temperature = temp,
+                            WindSpeed = windSpeed,
+                            WindDirection = windDir,
+                            SkyCondition = $"{forecastResponse.CloudCover?[0] ?? 0}% cloud cover",
+                            WxPhrase = wxPhrase,
+                            Location = "Odense, Denmark"
+                        };
+                    }
+                }
+                else if (format == "pws-observations")
+                {
+                    // PWS Observations - try to parse similar to v1 observations
+                    var v1Response = JsonSerializer.Deserialize<WeatherApiResponse>(json, _jsonOptions);
+                    if (v1Response?.Observations?.Count > 0)
+                    {
+                        var obs = v1Response.Observations.FirstOrDefault();
                         if (obs != null)
                         {
-                            _logger.LogInformation("Successfully parsed v3 response: {Temp}°C", obs.Temperature);
+                            _logger.LogInformation("Successfully parsed PWS Observations response: {Temp}°C", obs.Temp);
+                            return new WeatherModel
+                            {
+                                TimeStamp = DateTime.UtcNow,
+                                Temperature = obs.Temp ?? 0,
+                                WindSpeed = obs.Wspd ?? 0,
+                                WindDirection = obs.WdirCardinal ?? "N/A",
+                                SkyCondition = MapSkyCondition(obs.Clds),
+                                WxPhrase = obs.WxPhrase,
+                                Location = obs.ObsName ?? "Unknown"
+                            };
+                        }
+                    }
+                }
+                else // v1, v2, v3 legacy formats
+                {
+                    // Try v3 Observations array first
+                    var v3ObsResponse = JsonSerializer.Deserialize<WeatherApiResponseV3Observations>(json, _jsonOptions);
+                    if (v3ObsResponse?.Observations?.Count > 0)
+                    {
+                        var obs = v3ObsResponse.Observations.FirstOrDefault();
+                        if (obs != null)
+                        {
+                            _logger.LogInformation("Successfully parsed v3 Observations response: {Temp}°C", obs.Temperature);
                             return new WeatherModel
                             {
                                 TimeStamp = DateTime.UtcNow,
@@ -118,21 +205,20 @@ namespace SCPS_API_Project.Services
                                 WindSpeed = obs.WindSpeed ?? 0,
                                 WindDirection = obs.WindDirectionCardinal ?? "N/A",
                                 SkyCondition = obs.CloudCoverPhrase ?? "Unknown",
-                                WxPhrase = obs.WxPhrase,
+                                WxPhrase = obs.WxPhraseLong ?? obs.WxPhrase,
                                 Location = "Odense, Denmark"
                             };
                         }
                     }
-                }
-                else // v1 or v2
-                {
+
+                    // Try v1/v2 format
                     var v1Response = JsonSerializer.Deserialize<WeatherApiResponse>(json, _jsonOptions);
                     if (v1Response?.Observations?.Count > 0)
                     {
                         var obs = v1Response.Observations.FirstOrDefault();
                         if (obs != null)
                         {
-                            _logger.LogInformation("Successfully parsed {Format} response: {Temp}°C", format, obs.Temp);
+                            _logger.LogInformation("Successfully parsed v1/v2 response: {Temp}°C", obs.Temp);
                             return new WeatherModel
                             {
                                 TimeStamp = DateTime.UtcNow,
@@ -166,5 +252,191 @@ namespace SCPS_API_Project.Services
             "OVC" => "Overcast",
             _ => clds ?? "Unknown"
         };
+
+        /// <summary>
+        /// Fetches historical hourly weather data for the specified number of days back
+        /// Uses the v3/wx/conditions/historical/hourly/1day endpoint
+        /// https://developer.weather.com/docs/openapi/historical-conditions-hourly-3-0/get-v3-wx-conditions-historical-hourly-1day-by-geocode
+        /// </summary>
+        public async Task<List<WeatherModel>> FetchHistoricalHourlyAsync(int daysBack = 1)
+        {
+            var apiKey = _config["WeatherApi:ApiKey"];
+            var lat = _config["WeatherApi:Latitude"] ?? "55.6761";
+            var lon = _config["WeatherApi:Longitude"] ?? "12.5683";
+            var results = new List<WeatherModel>();
+
+            // Check for missing API key early
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                _logger.LogError("WeatherApi:ApiKey is not configured. Cannot fetch historical data.");
+                return results;
+            }
+
+            try
+            {
+                // Historical endpoint: /v3/wx/conditions/historical/hourly/1day
+                // For multiple days, you need to call for each day
+                for (int i = 0; i < daysBack; i++)
+                {
+                    var url = $"https://api.weather.com/v3/wx/conditions/historical/hourly/1day?geocode={lat},{lon}&apiKey={apiKey}&units=m&language=en-US&format=json";
+
+                    _logger.LogDebug("Fetching historical hourly data (day {Day}): {Endpoint}", i, url.Split("?")[0]);
+
+                    var response = await _httpClient.GetAsync(url);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("Historical endpoint returned {StatusCode}", response.StatusCode);
+                        continue;
+                    }
+
+                    var json = await response.Content.ReadAsStringAsync();
+
+                    // Parse the historical response (arrays format)
+                    var historicalResponse = JsonSerializer.Deserialize<WeatherApiResponseV3Historical>(json, _jsonOptions);
+
+                    if (historicalResponse?.Temperature?.Count > 0)
+                    {
+                        _logger.LogInformation("Fetched {Count} historical hourly records", historicalResponse.Temperature.Count);
+
+                        // Convert array format to individual WeatherModel records
+                        for (int idx = 0; idx < historicalResponse.Temperature.Count; idx++)
+                        {
+                            var timeStr = historicalResponse.ValidTimeLocal?[idx];
+                            var temp = historicalResponse.Temperature?[idx] ?? 0;
+                            var windSpeed = historicalResponse.WindSpeed?[idx] ?? 0;
+                            var windDir = historicalResponse.WindDirectionCardinal?[idx] ?? "N/A";
+                            var wxPhrase = historicalResponse.WxPhraseLong?[idx] ?? "Unknown";
+
+                            // Try to parse the time string
+                            DateTime validTime = DateTime.UtcNow;
+                            if (!string.IsNullOrEmpty(timeStr) && DateTime.TryParse(timeStr, out var parsedTime))
+                            {
+                                validTime = parsedTime;
+                            }
+
+                            var weatherModel = new WeatherModel
+                            {
+                                TimeStamp = validTime,
+                                Temperature = (double)temp,
+                                WindSpeed = (double)windSpeed,
+                                WindDirection = windDir,
+                                SkyCondition = wxPhrase,
+                                WxPhrase = wxPhrase,
+                                Location = "Stigs Bjergby, Denmark"
+                            };
+
+                            results.Add(weatherModel);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("No historical data returned or unable to parse response");
+                    }
+                }
+
+                _logger.LogInformation("Successfully fetched {Count} total historical records", results.Count);
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to fetch historical hourly weather data");
+                return results;
+            }
+        }
+
+        /// <summary>
+        /// Fetches historical hourly weather data for a specific date
+        /// Uses the v3/wx/conditions/historical/hourly/1day endpoint
+        /// https://developer.weather.com/docs/openapi/historical-conditions-hourly-3-0/get-v3-wx-conditions-historical-hourly-1day-by-geocode
+        /// </summary>
+        public async Task<List<WeatherModel>> FetchHistoricalHourlyAsync(DateTime? specificDate = null)
+        {
+            var apiKey = _config["WeatherApi:ApiKey"];
+            var lat = _config["WeatherApi:Latitude"] ?? "55.6761";
+            var lon = _config["WeatherApi:Longitude"] ?? "12.5683";
+            var results = new List<WeatherModel>();
+
+            // Check for missing API key early
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                _logger.LogError("WeatherApi:ApiKey is not configured. Cannot fetch historical data.");
+                return results;
+            }
+
+            try
+            {
+                // If no specific date provided, use yesterday
+                if (specificDate == null)
+                {
+                    specificDate = DateTime.UtcNow.AddDays(-1);
+                }
+
+                var dateStr = specificDate.Value.ToString("yyyy-MM-dd");
+                var url = $"https://api.weather.com/v3/wx/conditions/historical/hourly/1day?geocode={lat},{lon}&apiKey={apiKey}&units=m&language=en-US&format=json";
+
+                _logger.LogDebug("Fetching historical hourly data for {Date}: {Endpoint}", dateStr, url.Split("?")[0]);
+
+                var response = await _httpClient.GetAsync(url);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Historical endpoint returned {StatusCode}", response.StatusCode);
+                    return results;
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+
+                // Parse the historical response (arrays format)
+                var historicalResponse = JsonSerializer.Deserialize<WeatherApiResponseV3Historical>(json, _jsonOptions);
+
+                if (historicalResponse?.Temperature?.Count > 0)
+                {
+                    _logger.LogInformation("Fetched {Count} historical hourly records for {Date}", historicalResponse.Temperature.Count, dateStr);
+
+                    // Convert array format to individual WeatherModel records
+                    for (int idx = 0; idx < historicalResponse.Temperature.Count; idx++)
+                    {
+                        var timeStr = historicalResponse.ValidTimeLocal?[idx];
+                        var temp = historicalResponse.Temperature?[idx] ?? 0;
+                        var windSpeed = historicalResponse.WindSpeed?[idx] ?? 0;
+                        var windDir = historicalResponse.WindDirectionCardinal?[idx] ?? "N/A";
+                        var wxPhrase = historicalResponse.WxPhraseLong?[idx] ?? "Unknown";
+
+                        // Try to parse the time string
+                        DateTime validTime = DateTime.UtcNow;
+                        if (!string.IsNullOrEmpty(timeStr) && DateTime.TryParse(timeStr, out var parsedTime))
+                        {
+                            validTime = parsedTime;
+                        }
+
+                        var weatherModel = new WeatherModel
+                        {
+                            TimeStamp = validTime,
+                            Temperature = (double)temp,
+                            WindSpeed = (double)windSpeed,
+                            WindDirection = windDir,
+                            SkyCondition = wxPhrase,
+                            WxPhrase = wxPhrase,
+                            Location = "Stigs Bjergby, Denmark"
+                        };
+
+                        results.Add(weatherModel);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("No historical data returned for {Date} or unable to parse response", dateStr);
+                }
+
+                _logger.LogInformation("Successfully fetched {Count} historical records for {Date}", results.Count, dateStr);
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to fetch historical hourly weather data for specific date");
+                return results;
+            }
+        }
     }
 }
