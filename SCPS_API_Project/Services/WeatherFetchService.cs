@@ -1,4 +1,5 @@
 using SCPS_API_Project.Data;
+using SCPS_API_Project.Models;
 
 namespace SCPS_API_Project.Services
 {
@@ -21,13 +22,12 @@ namespace SCPS_API_Project.Services
         {
             _logger.LogInformation("WeatherFetchService started. Fetching every {Interval} minutes.", _interval.TotalMinutes);
 
-            // Fetch one snapshot immediately on startup
-            await FetchAndSaveAsync();
+            await Task.WhenAll(FetchAndSaveAsync(), FetchAndSaveForecastAsync());
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 await Task.Delay(_interval, stoppingToken);
-                await FetchAndSaveAsync();
+                await Task.WhenAll(FetchAndSaveAsync(), FetchAndSaveForecastAsync());
             }
         }
 
@@ -47,6 +47,50 @@ namespace SCPS_API_Project.Services
                 _logger.LogInformation("Saved: {Temp}°C, Wind {Speed} km/h {Dir}, {Sky}",
                     snapshot.Temperature, snapshot.WindSpeed, snapshot.WindDirection, snapshot.SkyCondition);
             }
+        }
+
+        /// <summary>
+        /// Fetches the 15-minute forecast and saves it to the database.
+        /// Replaces all future forecast records so the stored data is always the latest prediction.
+        /// </summary>
+        public async Task FetchAndSaveForecastAsync()
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var weatherApi = scope.ServiceProvider.GetRequiredService<IWeatherApiService>();
+            var context = scope.ServiceProvider.GetRequiredService<WeatherContext>();
+
+            _logger.LogInformation("Fetching 15-minute forecast at {Time}", DateTime.UtcNow);
+
+            var slots = await weatherApi.FetchFifteenMinuteForecastAsync();
+            if (slots.Count == 0)
+            {
+                _logger.LogWarning("No 15-minute forecast data returned from API");
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+
+            // Remove stale future forecast records and replace with fresh predictions
+            var stale = context.ForecastModel.Where(f => f.ValidTime > now).ToList();
+            if (stale.Count > 0)
+                context.ForecastModel.RemoveRange(stale);
+
+            var fetchedAt = now;
+            var newRecords = slots.Select(s => new ForecastModel
+            {
+                ValidTime = s.ValidTime,
+                FetchedAt = fetchedAt,
+                Temperature = s.Temperature,
+                WindSpeed = s.WindSpeed,
+                WindDirection = s.WindDirection,
+                WxPhrase = s.WxPhrase,
+                PrecipChance = s.PrecipChance,
+                CloudCover = s.CloudCover
+            }).ToList();
+
+            context.ForecastModel.AddRange(newRecords);
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Saved {Count} forecast slots", newRecords.Count);
         }
 
         /// <summary>

@@ -15,5 +15,6 @@ namespace SCPS_API_Project.Data
         }
 
         public DbSet<SCPS_API_Project.Models.WeatherModel> WeatherModel { get; set; } = default!;
+        public DbSet<SCPS_API_Project.Models.ForecastModel> ForecastModel { get; set; } = default!;
     }
 }

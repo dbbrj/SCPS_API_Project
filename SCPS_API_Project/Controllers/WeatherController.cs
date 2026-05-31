@@ -3,7 +3,6 @@ using Microsoft.EntityFrameworkCore;
 using SCPS_API_Project.Data;
 using SCPS_API_Project.Models;
 using SCPS_API_Project.Services;
-using System.Text.Json;
 
 namespace SCPS_API_Project.Controllers
 {
@@ -18,16 +17,29 @@ namespace SCPS_API_Project.Controllers
             _fetchService = fetchService;
         }
 
-        // GET: Weather — shows the last 50 snapshots, newest first
+        // GET: Weather — shows last 50 historical snapshots and stored 15-minute forecast
         public async Task<IActionResult> Index()
-            {
-                var snapshots = await _context.WeatherModel
-                    .OrderByDescending(w => w.TimeStamp)
-                    .Take(50)
-                    .ToListAsync();
+        {
+            var historicalTask = _context.WeatherModel
+                .OrderByDescending(w => w.TimeStamp)
+                .Take(50)
+                .ToListAsync();
 
-                return View(snapshots);
-            }
+            var forecastTask = _context.ForecastModel
+                .Where(f => f.ValidTime >= DateTime.UtcNow.AddMinutes(-15))
+                .OrderBy(f => f.ValidTime)
+                .ToListAsync();
+
+            await Task.WhenAll(historicalTask, forecastTask);
+
+            var viewModel = new WeatherIndexViewModel
+            {
+                Historical = historicalTask.Result,
+                Forecast = forecastTask.Result
+            };
+
+            return View(viewModel);
+        }
 
             // GET: Weather/DebugApi — test the API endpoint directly
             [HttpGet]
@@ -100,6 +112,15 @@ namespace SCPS_API_Project.Controllers
         public async Task<IActionResult> FetchNow()
         {
             await _fetchService.FetchAndSaveAsync();
+            return RedirectToAction(nameof(Index));
+        }
+
+        // POST: Weather/FetchForecastNow — manually triggers a 15-minute forecast fetch
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> FetchForecastNow()
+        {
+            await _fetchService.FetchAndSaveForecastAsync();
             return RedirectToAction(nameof(Index));
         }
 

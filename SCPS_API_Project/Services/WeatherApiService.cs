@@ -8,6 +8,7 @@ namespace SCPS_API_Project.Services
         Task<WeatherModel?> FetchCurrentWeatherAsync();
         Task<List<WeatherModel>> FetchHistoricalHourlyAsync(int daysBack = 1);
         Task<List<WeatherModel>> FetchHistoricalHourlyAsync(DateTime? specificDate = null);
+        Task<List<ForecastSlot>> FetchFifteenMinuteForecastAsync();
     }
 
     // Facade: hides the complexity of the external weather.com API behind a simple interface
@@ -350,6 +351,75 @@ namespace SCPS_API_Project.Services
         /// Uses the v3/wx/conditions/historical/hourly/1day endpoint
         /// https://developer.weather.com/docs/openapi/historical-conditions-hourly-3-0/get-v3-wx-conditions-historical-hourly-1day-by-geocode
         /// </summary>
+        /// <summary>
+        /// Fetches the 15-minute forecast for the configured location.
+        /// https://developer.weather.com/docs/openapi/15-minute-forecast-3-0/get-wx-forecast-fifteenminute
+        /// </summary>
+        public async Task<List<ForecastSlot>> FetchFifteenMinuteForecastAsync()
+        {
+            var apiKey = _config["WeatherApi:ApiKey"];
+            var lat = _config["WeatherApi:Latitude"] ?? "55.6761";
+            var lon = _config["WeatherApi:Longitude"] ?? "12.5683";
+            var results = new List<ForecastSlot>();
+
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                _logger.LogError("WeatherApi:ApiKey is not configured. Cannot fetch 15-minute forecast.");
+                return results;
+            }
+
+            try
+            {
+                var url = $"https://api.weather.com/v3/wx/forecast/fifteenminute?geocode={lat},{lon}&units=m&language=en-US&format=json&apiKey={apiKey}";
+                _logger.LogDebug("Fetching 15-minute forecast: {Endpoint}", url.Split("?")[0]);
+
+                var response = await _httpClient.GetAsync(url);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("15-minute forecast endpoint returned {StatusCode}", response.StatusCode);
+                    return results;
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+                var forecast = JsonSerializer.Deserialize<WeatherApiResponseFifteenMinuteForecast>(json, _jsonOptions);
+
+                if (forecast?.ValidTimeUtc?.Count > 0)
+                {
+                    for (int i = 0; i < forecast.ValidTimeUtc.Count; i++)
+                    {
+                        var utcSeconds = forecast.ValidTimeUtc[i];
+                        var validTime = utcSeconds.HasValue
+                            ? DateTimeOffset.FromUnixTimeSeconds(utcSeconds.Value).UtcDateTime
+                            : DateTime.UtcNow;
+
+                        results.Add(new ForecastSlot
+                        {
+                            ValidTime = validTime,
+                            Temperature = forecast.Temperature?.ElementAtOrDefault(i),
+                            WindSpeed = forecast.WindSpeed?.ElementAtOrDefault(i),
+                            WindDirection = forecast.WindDirectionCardinal?.ElementAtOrDefault(i),
+                            WxPhrase = forecast.WxPhraseLong?.ElementAtOrDefault(i),
+                            PrecipChance = forecast.PrecipChance?.ElementAtOrDefault(i),
+                            CloudCover = forecast.CloudCover?.ElementAtOrDefault(i)
+                        });
+                    }
+
+                    _logger.LogInformation("Fetched {Count} 15-minute forecast slots", results.Count);
+                }
+                else
+                {
+                    _logger.LogWarning("No 15-minute forecast data returned or unable to parse response");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to fetch 15-minute forecast");
+            }
+
+            return results;
+        }
+
         public async Task<List<WeatherModel>> FetchHistoricalHourlyAsync(DateTime? specificDate = null)
         {
             var apiKey = _config["WeatherApi:ApiKey"];
