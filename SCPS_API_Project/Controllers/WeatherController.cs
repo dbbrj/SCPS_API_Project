@@ -17,96 +17,18 @@ namespace SCPS_API_Project.Controllers
             _fetchService = fetchService;
         }
 
-        // GET: Weather — shows last 50 historical snapshots and stored 15-minute forecast
         public async Task<IActionResult> Index()
         {
-            var historicalTask = _context.WeatherModel
+            var historical = await _context.WeatherModel
                 .OrderByDescending(w => w.TimeStamp)
-                .Take(50)
+                .Take(100)
                 .ToListAsync();
 
-            var forecastTask = _context.ForecastModel
-                .Where(f => f.ValidTime >= DateTime.UtcNow.AddMinutes(-15))
-                .OrderBy(f => f.ValidTime)
-                .ToListAsync();
+            historical = historical.OrderBy(w => w.TimeStamp).ToList();
 
-            await Task.WhenAll(historicalTask, forecastTask);
-
-            var viewModel = new WeatherIndexViewModel
-            {
-                Historical = historicalTask.Result,
-                Forecast = forecastTask.Result
-            };
-
-            return View(viewModel);
+            return View(new WeatherIndexViewModel { Historical = historical });
         }
 
-            // GET: Weather/DebugApi — test the API endpoint directly
-            [HttpGet]
-            public async Task<IActionResult> DebugApi()
-            {
-                var apiService = HttpContext.RequestServices.GetRequiredService<IWeatherApiService>();
-                var result = await apiService.FetchCurrentWeatherAsync();
-
-                return Json(new 
-                { 
-                    success = result != null,
-                    data = result,
-                    message = result == null ? "Failed to fetch weather data" : "Success"
-                });
-            }
-
-            // GET: Weather/FetchHistorical — fetches and imports historical hourly data for last N days
-            [HttpGet]
-            public async Task<IActionResult> FetchHistorical(int days = 1)
-            {
-                try
-                {
-                    await _fetchService.FetchAndSaveHistoricalAsync(days);
-                    return Json(new { success = true, message = $"Historical data fetch started for {days} day(s)" });
-                }
-                catch (Exception ex)
-                {
-                    return Json(new { success = false, message = ex.Message });
-                }
-            }
-
-            // GET: Weather/DeleteByLocation — deletes all records with a specific location
-            [HttpGet]
-            public async Task<IActionResult> DeleteByLocation(string location = "Odense, Denmark")
-            {
-                try
-                {
-                    int deletedCount = await _fetchService.DeleteRecordsByLocationAsync(location);
-                    return Json(new { success = true, deleted = deletedCount, message = $"Deleted {deletedCount} records with location '{location}'" });
-                }
-                catch (Exception ex)
-                {
-                    return Json(new { success = false, message = ex.Message });
-                }
-            }
-
-            // GET: Weather/FetchHistoricalByDate — fetches and imports historical hourly data for a specific date
-            [HttpGet]
-            public async Task<IActionResult> FetchHistoricalByDate(string date)
-            {
-                try
-                {
-                    if (!DateTime.TryParse(date, out var parsedDate))
-                    {
-                        return Json(new { success = false, message = $"Invalid date format. Use YYYY-MM-DD format. Provided: {date}" });
-                    }
-
-                    await _fetchService.FetchAndSaveHistoricalAsync(parsedDate);
-                    return Json(new { success = true, message = $"Historical data fetch started for {parsedDate:yyyy-MM-dd}" });
-                }
-                catch (Exception ex)
-                {
-                    return Json(new { success = false, message = ex.Message });
-                }
-            }
-
-        // POST: Weather/FetchNow — manually triggers a new snapshot fetch
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> FetchNow()
@@ -115,86 +37,17 @@ namespace SCPS_API_Project.Controllers
             return RedirectToAction(nameof(Index));
         }
 
-        // POST: Weather/FetchForecastNow — manually triggers a 15-minute forecast fetch
-        [HttpPost]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> FetchForecastNow()
+        [HttpGet]
+        public async Task<IActionResult> DebugApi()
         {
-            await _fetchService.FetchAndSaveForecastAsync();
-            return RedirectToAction(nameof(Index));
-        }
-
-        // GET: Weather/Details/5
-        public async Task<IActionResult> Details(int? id)
-        {
-            if (id == null) return NotFound();
-
-            var weatherModel = await _context.WeatherModel.FirstOrDefaultAsync(m => m.Id == id);
-            if (weatherModel == null) return NotFound();
-
-            return View(weatherModel);
-        }
-
-        // POST: Weather/ImportHistorical — accepts the parallel-array JSON from the historical API
-        // and inserts one WeatherModel row per time slot (skips duplicates by UTC timestamp)
-        [HttpPost]
-        public async Task<IActionResult> ImportHistorical([FromBody] WeatherApiResponseV3Historical data)
-        {
-            if (data == null || data.ValidTimeUtc.Count == 0)
-                return BadRequest(new { error = "No time slots found in the payload." });
-
-            int total = data.ValidTimeUtc.Count;
-            var toInsert = new List<WeatherModel>(total);
-
-            for (int i = 0; i < total; i++)
+            var apiService = HttpContext.RequestServices.GetRequiredService<IWeatherApiService>();
+            var result = await apiService.FetchCurrentWeatherAsync();
+            return Json(new
             {
-                if (data.ValidTimeUtc[i] is not long utcSeconds) continue;
-
-                var timestamp = DateTimeOffset.FromUnixTimeSeconds(utcSeconds).UtcDateTime;
-
-                bool exists = await _context.WeatherModel.AnyAsync(w => w.TimeStamp == timestamp);
-                if (exists) continue;
-
-                toInsert.Add(new WeatherModel
-                {
-                    TimeStamp = timestamp,
-                    Temperature = data.Temperature.ElementAtOrDefault(i) ?? 0,
-                    WindSpeed = data.WindSpeed.ElementAtOrDefault(i) ?? 0,
-                    WindDirection = data.WindDirectionCardinal.ElementAtOrDefault(i) ?? "N/A",
-                    SkyCondition = data.WxPhraseLong.ElementAtOrDefault(i) ?? "Unknown",
-                    WxPhrase = data.WxPhraseLong.ElementAtOrDefault(i),
-                    Location = "Odense, Denmark"
-                });
-            }
-
-            _context.WeatherModel.AddRange(toInsert);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { inserted = toInsert.Count, skipped = total - toInsert.Count });
-        }
-
-        // GET: Weather/Delete/5
-        public async Task<IActionResult> Delete(int? id)
-        {
-            if (id == null) return NotFound();
-
-            var weatherModel = await _context.WeatherModel.FirstOrDefaultAsync(m => m.Id == id);
-            if (weatherModel == null) return NotFound();
-
-            return View(weatherModel);
-        }
-
-        // POST: Weather/Delete/5
-        [HttpPost, ActionName("Delete")]
-        [ValidateAntiForgeryToken]
-        public async Task<IActionResult> DeleteConfirmed(int id)
-        {
-            var weatherModel = await _context.WeatherModel.FindAsync(id);
-            if (weatherModel != null)
-                _context.WeatherModel.Remove(weatherModel);
-
-            await _context.SaveChangesAsync();
-            return RedirectToAction(nameof(Index));
+                success = result != null,
+                data    = result,
+                message = result == null ? "Failed to fetch weather data" : "Success"
+            });
         }
     }
 }

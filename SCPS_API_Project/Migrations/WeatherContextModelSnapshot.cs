@@ -22,43 +22,6 @@ namespace SCPS_API_Project.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("SCPS_API_Project.Models.ForecastModel", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<int?>("CloudCover")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("FetchedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("PrecipChance")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("Temperature")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime>("ValidTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("WindDirection")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("WindSpeed")
-                        .HasColumnType("int");
-
-                    b.Property<string>("WxPhrase")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("ForecastModel");
-                });
-
             modelBuilder.Entity("SCPS_API_Project.Models.WeatherModel", b =>
                 {
                     b.Property<int>("Id")

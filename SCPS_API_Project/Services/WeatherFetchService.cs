@@ -1,9 +1,7 @@
 using SCPS_API_Project.Data;
-using SCPS_API_Project.Models;
 
 namespace SCPS_API_Project.Services
 {
-    // Singleton background service: automatically fetches a new weather snapshot at a fixed interval
     public class WeatherFetchService : BackgroundService
     {
         private readonly IServiceScopeFactory _scopeFactory;
@@ -20,184 +18,37 @@ namespace SCPS_API_Project.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("WeatherFetchService started. Fetching every {Interval} minutes.", _interval.TotalMinutes);
+            _logger.LogInformation("WeatherFetchService started. Interval: {Interval} min.", _interval.TotalMinutes);
 
-            await Task.WhenAll(FetchAndSaveAsync(), FetchAndSaveForecastAsync());
+            await FetchAndSaveAsync();
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 await Task.Delay(_interval, stoppingToken);
-                await Task.WhenAll(FetchAndSaveAsync(), FetchAndSaveForecastAsync());
+                await FetchAndSaveAsync();
             }
         }
 
         public async Task FetchAndSaveAsync()
         {
             using var scope = _scopeFactory.CreateScope();
-            var weatherApi = scope.ServiceProvider.GetRequiredService<IWeatherApiService>();
-            var context = scope.ServiceProvider.GetRequiredService<WeatherContext>();
+            var weatherApi  = scope.ServiceProvider.GetRequiredService<IWeatherApiService>();
+            var context     = scope.ServiceProvider.GetRequiredService<WeatherContext>();
 
-            _logger.LogInformation("Fetching weather snapshot at {Time}", DateTime.UtcNow);
+            _logger.LogInformation("Fetching current weather snapshot at {Time}", DateTime.UtcNow);
 
             var snapshot = await weatherApi.FetchCurrentWeatherAsync();
             if (snapshot != null)
             {
                 context.WeatherModel.Add(snapshot);
                 await context.SaveChangesAsync();
-                _logger.LogInformation("Saved: {Temp}°C, Wind {Speed} km/h {Dir}, {Sky}",
-                    snapshot.Temperature, snapshot.WindSpeed, snapshot.WindDirection, snapshot.SkyCondition);
-            }
-        }
-
-        /// <summary>
-        /// Fetches the 15-minute forecast and saves it to the database.
-        /// Replaces all future forecast records so the stored data is always the latest prediction.
-        /// </summary>
-        public async Task FetchAndSaveForecastAsync()
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var weatherApi = scope.ServiceProvider.GetRequiredService<IWeatherApiService>();
-            var context = scope.ServiceProvider.GetRequiredService<WeatherContext>();
-
-            _logger.LogInformation("Fetching 15-minute forecast at {Time}", DateTime.UtcNow);
-
-            var slots = await weatherApi.FetchFifteenMinuteForecastAsync();
-            if (slots.Count == 0)
-            {
-                _logger.LogWarning("No 15-minute forecast data returned from API");
-                return;
-            }
-
-            var now = DateTime.UtcNow;
-
-            // Remove stale future forecast records and replace with fresh predictions
-            var stale = context.ForecastModel.Where(f => f.ValidTime > now).ToList();
-            if (stale.Count > 0)
-                context.ForecastModel.RemoveRange(stale);
-
-            var fetchedAt = now;
-            var newRecords = slots.Select(s => new ForecastModel
-            {
-                ValidTime = s.ValidTime,
-                FetchedAt = fetchedAt,
-                Temperature = s.Temperature,
-                WindSpeed = s.WindSpeed,
-                WindDirection = s.WindDirection,
-                WxPhrase = s.WxPhrase,
-                PrecipChance = s.PrecipChance,
-                CloudCover = s.CloudCover
-            }).ToList();
-
-            context.ForecastModel.AddRange(newRecords);
-            await context.SaveChangesAsync();
-            _logger.LogInformation("Saved {Count} forecast slots", newRecords.Count);
-        }
-
-        /// <summary>
-        /// Fetches historical hourly data for the specified number of days back and saves to database
-        /// </summary>
-        public async Task FetchAndSaveHistoricalAsync(int daysBack = 1)
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var weatherApi = scope.ServiceProvider.GetRequiredService<IWeatherApiService>();
-            var context = scope.ServiceProvider.GetRequiredService<WeatherContext>();
-
-            _logger.LogInformation("Fetching historical hourly data for last {Days} day(s) at {Time}", daysBack, DateTime.UtcNow);
-
-            var historicalData = await weatherApi.FetchHistoricalHourlyAsync(daysBack);
-
-            if (historicalData?.Count > 0)
-            {
-                // Remove duplicates by checking if record with same timestamp already exists
-                var existingTimestamps = context.WeatherModel
-                    .AsEnumerable()
-                    .Select(w => w.TimeStamp)
-                    .ToHashSet();
-
-                var newRecords = historicalData
-                    .Where(h => !existingTimestamps.Contains(h.TimeStamp))
-                    .ToList();
-
-                if (newRecords.Count > 0)
-                {
-                    context.WeatherModel.AddRange(newRecords);
-                    await context.SaveChangesAsync();
-                    _logger.LogInformation("Saved {Count} new historical weather records", newRecords.Count);
-                }
-                else
-                {
-                    _logger.LogInformation("All historical records already exist in database");
-                }
+                _logger.LogInformation("Snapshot saved: {Temp}°C, {Wind} km/h {Dir}",
+                    snapshot.Temperature, snapshot.WindSpeed, snapshot.WindDirection);
             }
             else
             {
-                _logger.LogWarning("No historical data returned from API");
-            }
-        }
-
-        /// <summary>
-        /// Deletes all weather records with a specific location from the database
-        /// </summary>
-        public async Task<int> DeleteRecordsByLocationAsync(string location)
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<WeatherContext>();
-
-            var recordsToDelete = context.WeatherModel.Where(w => w.Location == location).ToList();
-            int count = recordsToDelete.Count;
-
-            if (count > 0)
-            {
-                context.WeatherModel.RemoveRange(recordsToDelete);
-                await context.SaveChangesAsync();
-                _logger.LogInformation("Deleted {Count} weather records with location '{Location}'", count, location);
-            }
-            else
-            {
-                _logger.LogInformation("No weather records found with location '{Location}'", location);
-            }
-
-            return count;
-        }
-
-        /// <summary>
-        /// Fetches and saves historical weather data for a specific date
-        /// </summary>
-        public async Task FetchAndSaveHistoricalAsync(DateTime specificDate)
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var weatherApi = scope.ServiceProvider.GetRequiredService<IWeatherApiService>();
-            var context = scope.ServiceProvider.GetRequiredService<WeatherContext>();
-
-            _logger.LogInformation("Fetching historical weather data for {Date}", specificDate.ToString("yyyy-MM-dd"));
-
-            var records = await weatherApi.FetchHistoricalHourlyAsync(specificDate);
-
-            if (records?.Count > 0)
-            {
-                // Check for duplicates based on TimeStamp to avoid re-importing
-                var existingTimestamps = new HashSet<DateTime>(
-                    context.WeatherModel.Select(w => w.TimeStamp).ToList()
-                );
-
-                var newRecords = records.Where(r => !existingTimestamps.Contains(r.TimeStamp)).ToList();
-
-                if (newRecords.Any())
-                {
-                    context.WeatherModel.AddRange(newRecords);
-                    await context.SaveChangesAsync();
-                    _logger.LogInformation("Saved {Count} new historical weather records for {Date}", newRecords.Count, specificDate.ToString("yyyy-MM-dd"));
-                }
-                else
-                {
-                    _logger.LogInformation("All historical records for {Date} already exist in database", specificDate.ToString("yyyy-MM-dd"));
-                }
-            }
-            else
-            {
-                _logger.LogWarning("No historical data returned from API for {Date}", specificDate.ToString("yyyy-MM-dd"));
+                _logger.LogWarning("Current weather returned null — snapshot not saved");
             }
         }
     }
 }
-
